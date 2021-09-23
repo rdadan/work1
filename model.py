@@ -11,7 +11,7 @@ os.environ['CUDA_ENABLE_DEVICES'] = '0'
 
 
 class GMF(nn.Module):
-    def __init__(self, num_users, num_items, factor_num=32, regs=[0, 0]):
+    def __init__(self, num_users, num_items, factor_num=2, regs=[0, 0]):
         super(GMF, self).__init__()
         self.GMF_User_Embedding = nn.Embedding(num_embeddings=num_users, embedding_dim=factor_num)
         self.GMF_Item_Embedding = nn.Embedding(num_embeddings=num_items, embedding_dim=factor_num)
@@ -46,7 +46,8 @@ class GMF(nn.Module):
 class MLP_1(nn.Module):
     def __init__(self, num_users, num_items, layers_num=3, factor_num=32*2):
         super(MLP_1, self).__init__()
-        layers = [32, 256, 128, 64, 32]
+        # layers = [32, 256, 128, 64, 32]
+        layers = [2, 2, 2, 2, 2]
         self.MLP_User_Embedding = nn.Embedding(num_embeddings=num_users, embedding_dim=layers[0]//2)
         self.MLP_Item_Embedding = nn.Embedding(num_embeddings=num_items, embedding_dim=layers[0]//2)
         self.dropout = 0
@@ -79,7 +80,7 @@ class MLP_1(nn.Module):
         return torch.mean(torch.pow(pred - rating, 2))
 
 class MLP(nn.Module):
-    def __init__(self, num_users, num_items, layers_num=3, factor_num=32):
+    def __init__(self, num_users, num_items, layers_num=3, factor_num=2):
         super(MLP, self).__init__()
 
         self.MLP_User_Embedding = nn.Embedding(num_embeddings=num_users,
@@ -126,10 +127,11 @@ class MLP(nn.Module):
 
 
 class NCF(nn.Module):
-    def __init__(self, user_num, item_num, flag='Local_Fed', gmf_model=None, mlp_model=None,
-                 factor_num=32, num_layers=3, dropout=0, ):
+    def __init__(self, user_num, item_num, gmf_model=None, mlp_model=None,
+                 flag='Local_Fed', factor_num=2, num_layers=3, dropout=0, ):
         super(NCF, self).__init__()
-        layers = [32, 256, 128, 64, 32]
+        # layers = [32, 256, 128, 64, 32]
+        layers = [2, 2, 2, 2, 2]
         self.dropout = dropout
         self.flag = flag
         self.gmf_Model = gmf_model
@@ -153,10 +155,10 @@ class NCF(nn.Module):
         self.NCF_FC_Layers = nn.ModuleList([nn.Linear(layer[0], layer[1]) for layer in list(zip(layers[:-1], layers[1:]))])
 
 
-        if self.flag == 'Local_Fed':
-            predict_size = factor_num*2
-        else:
-            predict_size = factor_num
+        # if self.flag == 'Local_Fed':
+        #     predict_size = factor_num*2
+        # else:
+        #     predict_size = factor_num
         self.ncf_predict_layer = nn.Linear(layers[0]*2, 1)
         self._init_weight_()
 
@@ -187,6 +189,12 @@ class NCF(nn.Module):
             self.MLP_Item_Embedding.weight.data.copy_(
                 self.mlp_Model.MLP_Item_Embedding.weight)
 
+            # print("-----init ncf--------------: ")
+            # print(self.GMF_User_Embedding.weight.data)
+            # print(self.GMF_Item_Embedding.weight.data)
+            # print(self.MLP_User_Embedding.weight.data)
+            # print(self.MLP_Item_Embedding.weight.data)
+            # print("-------init ncf over-----------: \n ")
             # init ncf fully connect layers
             for (m1, m2) in zip(self.NCF_FC_Layers, self.mlp_Model.MLP_Layers):
                 if isinstance(m1, nn.Linear) and isinstance(m2, nn.Linear):
@@ -206,26 +214,26 @@ class NCF(nn.Module):
 
     def forward(self, user, item):
         global GMF_Embedding, MLP_Embedding, NCF_Embedding
-        if not self.flag == 'GMF':
-            GMF_User_Embedding = self.GMF_User_Embedding(user)
-            GMF_Item_Embedding = self.GMF_Item_Embedding(item)
-            GMF_Embedding = torch.mul(GMF_User_Embedding, GMF_Item_Embedding)
-        if not self.flag == 'MLP':
-            MLP_User_Embedding = self.MLP_User_Embedding(user)
-            MLP_Item_Embedding = self.MLP_Item_Embedding(item)
-            MLP_Embedding = torch.cat((MLP_User_Embedding, MLP_Item_Embedding), -1)
-            #output_MLP = self.NCF_FC_Layers(embedding_vec)
-            """ fully connected """
-            for linear in self.NCF_FC_Layers:
-                MLP_Embedding = linear(MLP_Embedding)
-                MLP_Embedding = F.relu(MLP_Embedding)
+        #if not self.flag == 'GMF':
+        GMF_User_Embedding = self.GMF_User_Embedding(user)
+        GMF_Item_Embedding = self.GMF_Item_Embedding(item)
+        GMF_Embedding = torch.mul(GMF_User_Embedding, GMF_Item_Embedding)
+        #if not self.flag == 'MLP':
+        MLP_User_Embedding = self.MLP_User_Embedding(user)
+        MLP_Item_Embedding = self.MLP_Item_Embedding(item)
+        MLP_Embedding = torch.cat((MLP_User_Embedding, MLP_Item_Embedding), -1)
+        #output_MLP = self.NCF_FC_Layers(embedding_vec)
+        """ fully connected """
+        for linear in self.NCF_FC_Layers:
+            MLP_Embedding = linear(MLP_Embedding)
+            MLP_Embedding = F.relu(MLP_Embedding)
 
-        if self.flag == 'GMF':
-            concat = GMF_Embedding
-        elif self.flag == 'MLP':
-            concat = MLP_Embedding
-        elif self.flag == 'Local_Fed':
-            concat = torch.cat((GMF_Embedding, MLP_Embedding), -1)
+        # if self.flag == 'GMF':
+        #     concat = GMF_Embedding
+        # elif self.flag == 'MLP':
+        #     concat = MLP_Embedding
+        # elif self.flag == 'Local_Fed':
+        #     concat = torch.cat((GMF_Embedding, MLP_Embedding), -1)
         NCF_Embedding = torch.cat((GMF_Embedding, MLP_Embedding), -1)
         prediction = self.ncf_predict_layer(NCF_Embedding)
         outputs = self.activation(prediction)
