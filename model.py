@@ -10,15 +10,17 @@ import os
 os.environ['CUDA_ENABLE_DEVICES'] = '0'
 
 
+Layers = [32, 256, 128, 64, 32]
+
 class GMF(nn.Module):
-    def __init__(self, num_users, num_items, factor_num=2, regs=[0, 0]):
+    def __init__(self, num_users, num_items):
         super(GMF, self).__init__()
-        self.GMF_User_Embedding = nn.Embedding(num_embeddings=num_users, embedding_dim=factor_num)
-        self.GMF_Item_Embedding = nn.Embedding(num_embeddings=num_items, embedding_dim=factor_num)
+        self.GMF_User_Embedding = nn.Embedding(num_embeddings=num_users, embedding_dim=Layers[0])
+        self.GMF_Item_Embedding = nn.Embedding(num_embeddings=num_items, embedding_dim=Layers[0])
 
         """ linear logistic regression layer """
-        self.gmf_predict_layer = nn.Linear(factor_num, 1)
-        self.sigmoid = nn.Sigmoid()
+        self.gmf_predict_layer = nn.Linear(Layers[0], 1)
+        #self.sigmoid = nn.Sigmoid()
 
         #self.loss = nn.BCELoss()
 
@@ -30,8 +32,9 @@ class GMF(nn.Module):
         embedding_vec = torch.mul(GMF_User_Embedding, GMF_Item_Embedding)
 
         """ linear logistic regression """
-        ncf_predict = self.gmf_predict_layer(embedding_vec)
-        outputs = self.sigmoid(ncf_predict)
+        pred = self.gmf_predict_layer(embedding_vec)
+        # outputs = self.sigmoid(ncf_predict)
+        outputs = F.relu(pred)
         return outputs
 
     def get_loss(self, pred, rating):
@@ -44,10 +47,10 @@ class GMF(nn.Module):
         return
 
 class MLP_1(nn.Module):
-    def __init__(self, num_users, num_items, layers_num=3, factor_num=32*2):
+    def __init__(self, num_users, num_items):
         super(MLP_1, self).__init__()
-        # layers = [32, 256, 128, 64, 32]
-        layers = [2, 2, 2, 2, 2]
+        layers = Layers
+        #layers = [2, 2, 2, 2, 2]
         self.MLP_User_Embedding = nn.Embedding(num_embeddings=num_users, embedding_dim=layers[0]//2)
         self.MLP_Item_Embedding = nn.Embedding(num_embeddings=num_items, embedding_dim=layers[0]//2)
         self.dropout = 0
@@ -72,9 +75,10 @@ class MLP_1(nn.Module):
             embedding_vec = linear(embedding_vec)
             embedding_vec = F.relu(embedding_vec)
         # logistic regression
-        embedding_vec = self.mlp_predict_layer(embedding_vec)
-        output = self.activation(embedding_vec)
-        return output
+        pred = self.mlp_predict_layer(embedding_vec)
+        # output = self.activation(embedding_vec)
+        outputs = F.relu(pred)
+        return outputs
 
     def get_loss(self, pred, rating):
         return torch.mean(torch.pow(pred - rating, 2))
@@ -128,10 +132,10 @@ class MLP(nn.Module):
 
 class NCF(nn.Module):
     def __init__(self, user_num, item_num, gmf_model=None, mlp_model=None,
-                 flag='Local_Fed', factor_num=2, num_layers=3, dropout=0, ):
+                 flag='Local_Fed', factor_num=Layers[0], num_layers=3, dropout=0, ):
         super(NCF, self).__init__()
         # layers = [32, 256, 128, 64, 32]
-        layers = [2, 2, 2, 2, 2]
+        layers = Layers
         self.dropout = dropout
         self.flag = flag
         self.gmf_Model = gmf_model
@@ -235,8 +239,9 @@ class NCF(nn.Module):
         # elif self.flag == 'Local_Fed':
         #     concat = torch.cat((GMF_Embedding, MLP_Embedding), -1)
         NCF_Embedding = torch.cat((GMF_Embedding, MLP_Embedding), -1)
-        prediction = self.ncf_predict_layer(NCF_Embedding)
-        outputs = self.activation(prediction)
+        pred = self.ncf_predict_layer(NCF_Embedding)
+        # outputs = self.activation(prediction)
+        outputs = F.relu(pred)
         return outputs
         #return prediction.view(-1)
 

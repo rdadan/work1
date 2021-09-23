@@ -1,17 +1,17 @@
 from data import readdata, write_log
 from torch_federated_learn import federated_learn
 
-# filename1 = 'data/ml.userlist'
-# filename2 = 'data/ml.itemlist'
-# filename3 = 'data/ml.train.rating'
-# filename4 = 'data/ml.valid.rating'
-# filename5 = 'data/ml.test.rating'
+filename1 = 'data/ml.userlist'
+filename2 = 'data/ml.itemlist'
+filename3 = 'data/ml.train.rating'
+filename4 = 'data/ml.valid.rating'
+filename5 = 'data/ml.test.rating'
 
-filename1 = 'data/ml0.userlist'
-filename2 = 'data/ml0.itemlist'
-filename3 = 'data/ml0.train.rating'
-filename4 = 'data/ml0.valid.rating'
-filename5 = 'data/ml0.test.rating'
+# filename1 = 'data/ml0.userlist'
+# filename2 = 'data/ml0.itemlist'
+# filename3 = 'data/ml0.train.rating'
+# filename4 = 'data/ml0.valid.rating'
+# filename5 = 'data/ml0.test.rating'
 
 userlist, itemlist, traindata, validdata, testdata = readdata(filename1, filename2, filename3, filename4, filename5)
 

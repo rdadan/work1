@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import numpy as np
 from data import getbatches, datatoinput
 from evaluation import get_mae_mse
@@ -6,7 +7,6 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 
 def cli_local_train(net, optimizer, traindata, batch_size, epochs, use_cuda):
-
     loss_i = []
     for epoch in range(epochs):
         # switch to train mode
@@ -19,6 +19,7 @@ def cli_local_train(net, optimizer, traindata, batch_size, epochs, use_cuda):
             # forward propagation for loss
             pred = net(users, items)
             loss_ = net.get_loss(pred, ratings)
+
             # back propagation for gradient
             loss_.backward()
             torch.nn.utils.clip_grad_norm_(net.parameters(), 5)

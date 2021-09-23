@@ -66,13 +66,13 @@ def readdata(filename1, filename2, filename3, filename4, filename5):
     return userlist, itemlist, traindata, validdata, testdata
 
 
-def split_data_to_train_valid(data, cli_idx):
+def split_data(data, cli_idx, size):
     tmp = np.array(data).astype(np.int32)
     tmp = tmp[tmp[:, 0] == cli_idx]
     np.random.shuffle(tmp)
-    train_size = int(tmp.shape[0] * 0.9)  # every client's 10% data to valid_data
-    train_data, valid_data = tmp[:train_size], tmp[train_size:-1]
-    return train_data, valid_data
+    size = int(tmp.shape[0] * size)
+    data_1, data_2 = tmp[:size], tmp[size:-1]
+    return data_1, data_2
 
 
 def get_client_data(data, cli_idx):
@@ -111,7 +111,7 @@ def batchtoinput(batch, use_cuda):
         ratings.append(example[2])
     users = torch.tensor(users, dtype=torch.int64)
     items = torch.tensor(items, dtype=torch.int64)
-    ratings = torch.tensor(ratings, dtype=torch.float32)
+    ratings = torch.tensor(ratings, dtype=torch.float64)
     if use_cuda:
         users = users.cuda()
         items = items.cuda()
