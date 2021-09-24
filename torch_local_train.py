@@ -6,6 +6,7 @@ from evaluation import get_mae_mse
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 
+
 def cli_local_train(net, optimizer, traindata, batch_size, epochs, use_cuda):
     loss_i = []
     for epoch in range(epochs):
@@ -38,12 +39,15 @@ def cli_local_test(net, testdata, batch_size, use_cuda):
     net.eval()  # switch to test mode
     ratlist = []
     predlist = []
+
     for k, (users, items, ratings) in enumerate(getbatches(testdata, batch_size, use_cuda, False)):
+        #with torch.no_grad():
         pred = net(users, items)
         predlist.extend(pred.tolist())
         ratlist.extend(ratings.tolist())
-    mae, mse = get_mae_mse(np.array(ratlist), np.array(predlist))
-
+    # mae, mse = get_mae_mse(np.array(ratlist), np.array(predlist))
+    mae = mean_absolute_error(ratlist, predlist)
+    mse = mean_squared_error(ratlist, predlist)
     return mae, mse
 
 

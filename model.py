@@ -7,10 +7,11 @@ from torch.nn.parameter import Parameter
 import numpy as np
 import collections
 import os
+
 os.environ['CUDA_ENABLE_DEVICES'] = '0'
 
+Layers = [16, 128, 64, 32]
 
-Layers = [32, 256, 128, 64, 32]
 
 class GMF(nn.Module):
     def __init__(self, num_users, num_items):
@@ -20,9 +21,6 @@ class GMF(nn.Module):
 
         """ linear logistic regression layer """
         self.gmf_predict_layer = nn.Linear(Layers[0], 1)
-        #self.sigmoid = nn.Sigmoid()
-
-        #self.loss = nn.BCELoss()
 
     def forward(self, user, item):
         """ embedding"""
@@ -33,34 +31,78 @@ class GMF(nn.Module):
 
         """ linear logistic regression """
         pred = self.gmf_predict_layer(embedding_vec)
-        # outputs = self.sigmoid(ncf_predict)
         outputs = F.relu(pred)
         return outputs
 
     def get_loss(self, pred, rating):
-        # regularizer = torch.sum(torch.matmul(self.metarecommender.memory, self.metarecommender.memory.t()))
         return torch.mean(torch.pow(pred - rating, 2))  # + self._lambda * regularizer
-        # loss = self.loss(pred, rating)
-        # return torch.mean(loss)
 
-    def set_fed_embedding(self, neuMF):
-        return
+
+class GMF_FED(nn.Module):
+    def __init__(self, user_num, item_num, gmf_1, gmf_2):
+        super(GMF_FED, self).__init__()
+        # layers = [32, 256, 128, 64, 32]
+        layers = Layers
+        # Embedding
+        self.GMF_1_User_Embedding = nn.Embedding(num_embeddings=user_num, embedding_dim=layers[0])
+        self.GMF_1_Item_Embedding = nn.Embedding(num_embeddings=item_num, embedding_dim=layers[0])
+        self.GMF_2_User_Embedding = nn.Embedding(num_embeddings=user_num, embedding_dim=layers[0])
+        self.GMF_2_Item_Embedding = nn.Embedding(num_embeddings=item_num, embedding_dim=layers[0])
+        # Pred
+        self.fed_predict_layer = nn.Linear(layers[0] * 2, 1)
+
+        # Init
+        self._init_weight_(gmf_1, gmf_2)
+
+    def forward(self, user_inputs, item_inputs):
+        """ embedding"""
+        GMF_1_User_Embedding = self.GMF_1_User_Embedding(user_inputs)
+        GMF_1_Item_Embedding = self.GMF_1_Item_Embedding(item_inputs)
+        GMF_2_User_Embedding = self.GMF_2_User_Embedding(user_inputs)
+        GMF_2_Item_Embedding = self.GMF_2_Item_Embedding(item_inputs)
+
+        # dot product, multiply the elements at the corresponding positions
+        Fed_User_Embedding = torch.cat((GMF_1_User_Embedding, GMF_2_User_Embedding), dim=1)
+        Fed_Item_Embedding = torch.cat((GMF_1_Item_Embedding, GMF_2_Item_Embedding), dim=1)
+        embedding_vec = torch.mul(Fed_User_Embedding, Fed_Item_Embedding)
+
+        """ linear logistic regression """
+        pred = self.fed_predict_layer(embedding_vec)
+        outputs = F.relu(pred)
+        return outputs
+        # return prediction.view(-1)
+
+    def _init_weight_(self, gmf_1, gmf_2):
+        """ weights initialization. """
+        # init ncf embedding layers with gmf,mlp embedding
+        self.GMF_1_User_Embedding.weight.data.copy_(gmf_1.GMF_User_Embedding.weight)
+        self.GMF_1_Item_Embedding.weight.data.copy_(gmf_1.GMF_Item_Embedding.weight)
+        self.GMF_2_User_Embedding.weight.data.copy_(gmf_2.GMF_User_Embedding.weight)
+        self.GMF_2_Item_Embedding.weight.data.copy_(gmf_2.GMF_Item_Embedding.weight)
+
+
+        predict_weight = torch.cat((gmf_1.gmf_predict_layer.weight, gmf_2.gmf_predict_layer.weight), dim=1)
+        precit_bias = gmf_1.gmf_predict_layer.bias + gmf_2.gmf_predict_layer.bias
+        self.fed_predict_layer.weight.data.copy_(predict_weight)
+        self.fed_predict_layer.bias.data.copy_(precit_bias)
+
+    def get_loss(self, pred, rating):
+        return torch.mean(torch.pow(pred - rating, 2))
+
 
 class MLP_1(nn.Module):
     def __init__(self, num_users, num_items):
         super(MLP_1, self).__init__()
         layers = Layers
-        #layers = [2, 2, 2, 2, 2]
-        self.MLP_User_Embedding = nn.Embedding(num_embeddings=num_users, embedding_dim=layers[0]//2)
-        self.MLP_Item_Embedding = nn.Embedding(num_embeddings=num_items, embedding_dim=layers[0]//2)
+        # layers = [2, 2, 2, 2, 2]
+        self.MLP_User_Embedding = nn.Embedding(num_embeddings=num_users, embedding_dim=layers[0] // 2)
+        self.MLP_Item_Embedding = nn.Embedding(num_embeddings=num_items, embedding_dim=layers[0] // 2)
         self.dropout = 0
         """ fully connected layer """
-        # -2-
-
         self.MLP_Layers = nn.ModuleList([nn.Linear(layer[0], layer[1]) for layer in list(zip(layers[:-1], layers[1:]))])
-
-        self.mlp_predict_layer = nn.Linear(layers[0], 1)  # [32,1]
-        self.activation = nn.Sigmoid()
+        """ embed cat"""
+        self.mlp_predict_layer = nn.Linear(layers[-1], 1)
+        # self.activation = nn.Sigmoid()
 
     def forward(self, user, item):
         """ Embedding """
@@ -68,8 +110,8 @@ class MLP_1(nn.Module):
         MLP_Item_Embedding = self.MLP_Item_Embedding(item)
 
         """ horizontal concatenation """
-        embedding_vec = torch.cat((MLP_User_Embedding, MLP_Item_Embedding), dim=1)
-        #print("embedding_vec：", embedding_vec.size())
+        embedding_vec = torch.cat((MLP_User_Embedding, MLP_Item_Embedding), dim=-1)
+        # print("embedding_vec：", embedding_vec.size())
         """ fully connected """
         for linear in self.MLP_Layers:
             embedding_vec = linear(embedding_vec)
@@ -83,14 +125,15 @@ class MLP_1(nn.Module):
     def get_loss(self, pred, rating):
         return torch.mean(torch.pow(pred - rating, 2))
 
+
 class MLP(nn.Module):
     def __init__(self, num_users, num_items, layers_num=3, factor_num=2):
         super(MLP, self).__init__()
 
         self.MLP_User_Embedding = nn.Embedding(num_embeddings=num_users,
-                                               embedding_dim=factor_num//2)#factor_num * (2 ** (layers_num - 1)))
+                                               embedding_dim=factor_num // 2)  # factor_num * (2 ** (layers_num - 1)))
         self.MLP_Item_Embedding = nn.Embedding(num_embeddings=num_items,
-                                               embedding_dim=factor_num//2)#factor_num * (2 ** (layers_num - 1)))
+                                               embedding_dim=factor_num // 2)  # factor_num * (2 ** (layers_num - 1)))
         self.dropout = 0
         """ fully connected layer """
         MLP_modules = []  # [256,128],[128,64],[64,32]
@@ -129,24 +172,25 @@ class MLP(nn.Module):
         return torch.mean(torch.pow(pred - rating, 2))
 
 
-
 class NCF(nn.Module):
-    def __init__(self, user_num, item_num, gmf_model=None, mlp_model=None,
+    def __init__(self, user_num, item_num, gmf_1=None, gmf_2=None,
                  flag='Local_Fed', factor_num=Layers[0], num_layers=3, dropout=0, ):
         super(NCF, self).__init__()
         # layers = [32, 256, 128, 64, 32]
         layers = Layers
         self.dropout = dropout
         self.flag = flag
-        self.gmf_Model = gmf_model
-        self.mlp_Model = mlp_model
+        self.gmf_1 = gmf_1
+        self.gmf_2 = gmf_2
         self.activation = nn.Sigmoid()
         # Embedding
-        self.GMF_User_Embedding = nn.Embedding(num_embeddings=user_num, embedding_dim=factor_num)
-        self.GMF_Item_Embedding = nn.Embedding(item_num, factor_num)
-        self.MLP_User_Embedding = nn.Embedding(user_num, layers[0]//2)#factor_num * (2 ** (num_layers - 1)))  # 32 *(2**2)=128
-        self.MLP_Item_Embedding = nn.Embedding(item_num, layers[0]//2)#factor_num * (2 ** (num_layers - 1)))
-        #self.NCF_FC_Layers = nn.ModuleList([nn.Linear(layer[0], layer[1]) for layer in list(zip(layers[:-1], layers[1:]))])
+        # self.GMF_User_Embedding = nn.Embedding(num_embeddings=user_num, embedding_dim=layers[0])
+        # self.GMF_Item_Embedding = nn.Embedding(item_num, layers[0])
+        # self.MLP_User_Embedding = nn.Embedding(user_num, layers[0]//2)#factor_num * (2 ** (num_layers - 1)))  # 32 *(2**2)=128
+        # self.MLP_Item_Embedding = nn.Embedding(item_num, layers[0]//2)#factor_num * (2 ** (num_layers - 1)))
+        self.NCF_User_Embedding = nn.Embedding(num_embeddings=user_num, embedding_dim=layers[0] * 2)
+        self.NCF_Item_Embedding = nn.Embedding(num_embeddings=user_num, embedding_dim=layers[0] * 2)
+        # self.NCF_FC_Layers = nn.ModuleList([nn.Linear(layer[0], layer[1]) for layer in list(zip(layers[:-1], layers[1:]))])
         # ncf full connect layers
         # NCF_Full_Connect = []
         # for i in range(num_layers):
@@ -155,82 +199,34 @@ class NCF(nn.Module):
         #     NCF_Full_Connect.append(nn.Linear(input_size, input_size // 2))
         #     NCF_Full_Connect.append(nn.ReLU())
         # self.NCF_FC_Layers = nn.Sequential(*NCF_Full_Connect)
+        # FC Layers
+        self.NCF_FC_Layers = nn.ModuleList(
+            [nn.Linear(layer[0], layer[1]) for layer in list(zip(layers[:-1], layers[1:]))])
+        # self.linear = nn.Linear(layers[-1], layers[0])
 
-        self.NCF_FC_Layers = nn.ModuleList([nn.Linear(layer[0], layer[1]) for layer in list(zip(layers[:-1], layers[1:]))])
-
-
-        # if self.flag == 'Local_Fed':
-        #     predict_size = factor_num*2
-        # else:
-        #     predict_size = factor_num
-        self.ncf_predict_layer = nn.Linear(layers[0]*2, 1)
+        """ embed mul"""
+        # self.ncf_predict_layer = nn.Linear(layers[0]*2, 1)  # [32,1]
+        self.ncf_predict_layer = nn.Linear(layers[-1], 1)
         self._init_weight_()
-
-    def _init_weight_(self):
-        """ weights initialization. """
-        if not self.flag == 'Local_Fed':
-            nn.init.normal_(self.GMF_User_Embedding.weight, std=0.01)
-            nn.init.normal_(self.MLP_User_Embedding.weight, std=0.01)
-            nn.init.normal_(self.GMF_Item_Embedding.weight, std=0.01)
-            nn.init.normal_(self.MLP_Item_Embedding.weight, std=0.01)
-
-            for m in self.NCF_FC_Layers:
-                if isinstance(m, nn.Linear):
-                    nn.init.xavier_uniform_(m.weight)
-            nn.init.kaiming_uniform_(self.ncf_predict_layer.weight, a=1, nonlinearity='sigmoid')
-
-            for m in self.modules():
-                if isinstance(m, nn.Linear) and m.bias is not None:
-                    m.bias.data.zero_()
-        else:
-            # init ncf embedding layers with gmf,mlp embedding
-            self.GMF_User_Embedding.weight.data.copy_(
-                self.gmf_Model.GMF_User_Embedding.weight)
-            self.GMF_Item_Embedding.weight.data.copy_(
-                self.gmf_Model.GMF_Item_Embedding.weight)
-            self.MLP_User_Embedding.weight.data.copy_(
-                self.mlp_Model.MLP_User_Embedding.weight)
-            self.MLP_Item_Embedding.weight.data.copy_(
-                self.mlp_Model.MLP_Item_Embedding.weight)
-
-            # print("-----init ncf--------------: ")
-            # print(self.GMF_User_Embedding.weight.data)
-            # print(self.GMF_Item_Embedding.weight.data)
-            # print(self.MLP_User_Embedding.weight.data)
-            # print(self.MLP_Item_Embedding.weight.data)
-            # print("-------init ncf over-----------: \n ")
-            # init ncf fully connect layers
-            for (m1, m2) in zip(self.NCF_FC_Layers, self.mlp_Model.MLP_Layers):
-                if isinstance(m1, nn.Linear) and isinstance(m2, nn.Linear):
-                    m1.weight.data.copy_(m2.weight)
-                    m1.bias.data.copy_(m2.bias)
-
-            # init ncf predict layers
-            predict_weight = torch.cat((self.gmf_Model.gmf_predict_layer.weight, self.mlp_Model.mlp_predict_layer.weight), dim=1)
-            precit_bias = self.gmf_Model.gmf_predict_layer.bias + self.mlp_Model.mlp_predict_layer.bias
-            self.ncf_predict_layer.weight.data.copy_(predict_weight)
-            self.ncf_predict_layer.bias.data.copy_(precit_bias)
-            #print("predict_weight: " , predict_weight.size())
-           # print("precit_bias: " , precit_bias)
-            #print("ncf_predict_layer.weight: " , self.ncf_predict_layer.weight.data.size())
-
-
 
     def forward(self, user, item):
         global GMF_Embedding, MLP_Embedding, NCF_Embedding
-        #if not self.flag == 'GMF':
-        GMF_User_Embedding = self.GMF_User_Embedding(user)
-        GMF_Item_Embedding = self.GMF_Item_Embedding(item)
-        GMF_Embedding = torch.mul(GMF_User_Embedding, GMF_Item_Embedding)
-        #if not self.flag == 'MLP':
-        MLP_User_Embedding = self.MLP_User_Embedding(user)
-        MLP_Item_Embedding = self.MLP_Item_Embedding(item)
-        MLP_Embedding = torch.cat((MLP_User_Embedding, MLP_Item_Embedding), -1)
-        #output_MLP = self.NCF_FC_Layers(embedding_vec)
+        # if not self.flag == 'GMF':
+        # GMF_User_Embedding = self.GMF_User_Embedding(user)
+        # GMF_Item_Embedding = self.GMF_Item_Embedding(item)
+        # #GMF_Embedding = torch.mul(GMF_User_Embedding, GMF_Item_Embedding)
+        # #if not self.flag == 'MLP':
+        # MLP_User_Embedding = self.MLP_User_Embedding(user)
+        # MLP_Item_Embedding = self.MLP_Item_Embedding(item)
+        # #MLP_Embedding = torch.cat((MLP_User_Embedding, MLP_Item_Embedding), -1)
+        # #output_MLP = self.NCF_FC_Layers(embedding_vec)
+        # NCF_User_Embedding = torch.cat((GMF_User_Embedding, MLP_User_Embedding), dim=-1) # 8+16=24
+        # NCF_Item_Embedding = torch.cat((GMF_Item_Embedding, MLP_Item_Embedding), dim=-1)
+        NCF_Embedding = torch.mul((self.NCF_User_Embedding, self.NCF_Item_Embedding))
         """ fully connected """
         for linear in self.NCF_FC_Layers:
-            MLP_Embedding = linear(MLP_Embedding)
-            MLP_Embedding = F.relu(MLP_Embedding)
+            NCF_Embedding = linear(NCF_Embedding)
+            NCF_Embedding = F.relu(NCF_Embedding)
 
         # if self.flag == 'GMF':
         #     concat = GMF_Embedding
@@ -238,15 +234,65 @@ class NCF(nn.Module):
         #     concat = MLP_Embedding
         # elif self.flag == 'Local_Fed':
         #     concat = torch.cat((GMF_Embedding, MLP_Embedding), -1)
-        NCF_Embedding = torch.cat((GMF_Embedding, MLP_Embedding), -1)
+
         pred = self.ncf_predict_layer(NCF_Embedding)
         # outputs = self.activation(prediction)
         outputs = F.relu(pred)
         return outputs
-        #return prediction.view(-1)
+        # return prediction.view(-1)
+
+    def _init_weight_(self):
+        """ weights initialization. """
+        # if not self.flag == 'Local_Fed':
+        #     nn.init.normal_(self.GMF_User_Embedding.weight, std=0.01)
+        #     nn.init.normal_(self.MLP_User_Embedding.weight, std=0.01)
+        #     nn.init.normal_(self.GMF_Item_Embedding.weight, std=0.01)
+        #     nn.init.normal_(self.MLP_Item_Embedding.weight, std=0.01)
+        #
+        #     for m in self.NCF_FC_Layers:
+        #         if isinstance(m, nn.Linear):
+        #             nn.init.xavier_uniform_(m.weight)
+        #     nn.init.kaiming_uniform_(self.ncf_predict_layer.weight, a=1, nonlinearity='sigmoid')
+        #
+        #     for m in self.modules():
+        #         if isinstance(m, nn.Linear) and m.bias is not None:
+        #             m.bias.data.zero_()
+        # else:
+        # init ncf embedding layers with gmf,mlp embedding
+        NCF_User_Embedding_Weight = torch.cat(
+            (self.gmf_1.GMF_User_Embedding.weight + self.gmf_2.GMF_User_Embedding.weight), dim=-1)
+        NCF_Item_Embedding_Weight = torch.cat(
+            (self.gmf_1.GMF_Item_Embedding.weight + self.gmf_2.GMF_Item_Embedding.weight), dim=-1)
+        self.NCF_User_Embedding.weight.data.copy_(NCF_User_Embedding_Weight)
+        self.NCF_Item_Embedding.weight.data.copy_(NCF_Item_Embedding_Weight)
+        # self.MLP_User_Embedding.weight.data.copy_(
+        #     self.gmf_2.MLP_User_Embedding.weight)
+        # self.MLP_Item_Embedding.weight.data.copy_(
+        #     self.gmf_2.MLP_Item_Embedding.weight)
+
+        # print("-----init ncf--------------: ")
+        # print(self.GMF_User_Embedding.weight.data)
+        # print(self.GMF_Item_Embedding.weight.data)
+        # print(self.MLP_User_Embedding.weight.data)
+        # print(self.MLP_Item_Embedding.weight.data)
+        # print("-------init ncf over-----------: \n ")
+        # init ncf fully connect layers
+        # for (m1, m2) in zip(self.NCF_FC_Layers, self.gmf_2.MLP_Layers):
+        #     if isinstance(m1, nn.Linear) and isinstance(m2, nn.Linear):
+        #         m1.weight.data.copy_(m2.weight)
+        #         m1.bias.data.copy_(m2.bias)
+
+        # init ncf predict layers
+        predict_weight = torch.cat((self.gmf_1.gmf_predict_layer.weight, self.gmf_2.mlp_predict_layer.weight), dim=1)
+        precit_bias = self.gmf_1.gmf_predict_layer.bias + self.gmf_2.mlp_predict_layer.bias
+        self.ncf_predict_layer.weight.data.copy_(predict_weight)
+        self.ncf_predict_layer.bias.data.copy_(precit_bias)
+        # print("predict_weight: " , predict_weight.size())
+
+    # print("precit_bias: " , precit_bias)
+    # print("ncf_predict_layer.weight: " , self.ncf_predict_layer.weight.data.size())
 
     def get_loss(self, pred, rating):
-
         return torch.mean(torch.pow(pred - rating, 2))
 
 
@@ -390,10 +436,10 @@ def get_average_weights(models):
 def update_local_embedding(local_modle, fed_ncf, name):
     """ update gmf/mlp embeddings with trained fed embedding """
     if name == 'gmf':
-        local_modle.GMF_User_Embedding.weight.data = fed_ncf.GMF_User_Embedding.weight.data
-        local_modle.GMF_Item_Embedding.weight.data = fed_ncf.GMF_Item_Embedding.weight.data
+        local_modle.GMF_User_Embedding.weight.data = fed_ncf.GMF_1_User_Embedding.weight.data
+        local_modle.GMF_Item_Embedding.weight.data = fed_ncf.GMF_1_Item_Embedding.weight.data
     elif name == 'mlp':
-        local_modle.MLP_User_Embedding.weight.data = fed_ncf.MLP_User_Embedding.weight.data
-        local_modle.MLP_Item_Embedding.weight.data = fed_ncf.MLP_Item_Embedding.weight.data
+        local_modle.MLP_User_Embedding.weight.data = fed_ncf.GMF_2_User_Embedding.weight.data
+        local_modle.MLP_Item_Embedding.weight.data = fed_ncf.GMF_2_Item_Embedding.weight.data
 
     return local_modle

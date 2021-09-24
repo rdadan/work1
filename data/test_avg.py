@@ -36,12 +36,12 @@ import collections
 
 print("----------")
 gmf = GMF(1, 2)
-mlp = MLP_1(1, 2)
+# mlp = MLP_1(1, 2)
 print(gmf)
-print(mlp)
-
-ncf = NCF(1, 2, gmf_model=gmf, mlp_model=mlp)
-print(ncf)
+#print(mlp)
+#
+# ncf = NCF(1, 2, gmf_1=gmf, gmf_2=gmf)
+# print(ncf)
 
 
 # filename1 = 'ml0.userlist'
@@ -61,8 +61,10 @@ print("111-------------------------\n")
 
 mlp = MLP_1(len((userlist)), len(itemlist))
 gmf = GMF(len((userlist)), len(itemlist))
-net = NCF(len(userlist), len(itemlist), gmf_model=gmf, mlp_model=mlp)
-#print(net)
+net = GMF_FED(len(userlist), len(itemlist), gmf_1=gmf, gmf_2=gmf)
+print(net)
+
+
 net.apply(weights_init)
 use_cuda = is_use_cuda()
 if use_cuda:

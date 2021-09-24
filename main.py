@@ -31,4 +31,6 @@ def train(userlist, itemlist, traindata, validdata, testdata):
 
 
 if __name__ == '__main__':
+    import torch
+    torch.cuda.empty_cache()
     train(userlist, itemlist, traindata, validdata, testdata)
